@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LeilãoPro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&display=swap" rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0f1117; font-family: system-ui, -apple-system, sans-serif; color: #f1f5f9; }
+    input, select, button, textarea { font-family: inherit; }
+    ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: #1a1f2e; } ::-webkit-scrollbar-thumb { background: #3d4560; border-radius: 99px; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+// ══════════════════════════════════════════
+// CONFIGURAÇÃO SUPABASE — edite aqui
+// ══════════════════════════════════════════
+const SUPABASE_URL = "https://SEU_PROJETO.supabase.co";
+const SUPABASE_ANON_KEY = "SUA_CHAVE_ANON_AQUI";
+const MODO_DEMO = true; // troque para false após configurar o Supabase
+
+// ══════════════════════════════════════════
+// SUPABASE CLIENT
+// ══════════════════════════════════════════
+const sbHeaders = {
+  "Content-Type": "application/json",
+  apikey: SUPABASE_ANON_KEY,
+  Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+  Prefer: "return=representation",
+};
+const sbUrl = (p) => `${SUPABASE_URL}/rest/v1/${p}`;
+const sbGet = async (t, q="") => { const r = await fetch(sbUrl(`${t}?${q}`), {headers:sbHeaders}); return r.json(); };
+const sbPost = async (t, b) => { const r = await fetch(sbUrl(t), {method:"POST",headers:sbHeaders,body:JSON.stringify(b)}); return r.json(); };
+const sbPatch = async (t, id, b) => { const r = await fetch(sbUrl(`${t}?id=eq.${id}`), {method:"PATCH",headers:sbHeaders,body:JSON.stringify(b)}); return r.json(); };
+const sbDel = async (t, id) => { const r = await fetch(sbUrl(`${t}?id=eq.${id}`), {method:"DELETE",headers:sbHeaders}); return r.ok; };
+
+// ══════════════════════════════════════════
+// DADOS PADRÃO
+// ══════════════════════════════════════════
+const FASES_PADRAO = [
+  { id:"pre", label:"Pré-Arrematação", color:"#f59e0b", icon:"🔍", items:[
+    {id:"contato_prop", label:"Contato com ex-proprietário"},
+    {id:"contato_corretor", label:"Contato com corretor na área"},
+    {id:"dividas", label:"Dívidas de condomínio e IPTU"},
+    {id:"preco_ref", label:"Referência de preço"},
+    {id:"matricula", label:"Matrícula verificada"},
+  ]},
+  { id:"pos", label:"Pós-Arrematação", color:"#3b82f6", icon:"🔨", items:[
+    {id:"boleto_pago", label:"Boleto da entrada pago"},
+    {id:"contrato_ass", label:"Contrato de financiamento assinado"},
+    {id:"dividas_pagas", label:"Dívidas pagas"},
+    {id:"registro_feito", label:"Registro feito"},
+  ]},
+  { id:"desocupacao", label:"Desocupação", color:"#ef4444", icon:"🏚️", items:[
+    {id:"desocupado", label:"Imóvel desocupado"},
+  ]},
+  { id:"reforma", label:"Reforma", color:"#8b5cf6", icon:"🔧", items:[
+    {id:"pintura", label:"Pintura"},
+    {id:"chaveiro", label:"Chaveiro"},
+    {id:"moveis", label:"Móveis"},
+  ]},
+  { id:"venda", label:"Venda", color:"#10b981", icon:"💰", items:[
+    {id:"vistoria_fin", label:"Vistoria para financiamento"},
+    {id:"anuncio_corretor", label:"Anúncio do corretor"},
+    {id:"anuncio_smart", label:"Anúncio da Smart"},
+    {id:"trafego_pago", label:"Tráfego pago"},
+  ]},
+];
+
+const DEMO_SOCIOS = ["Ana","Bruno","Carlos"];
+const DEMO_IMOVEIS = [
+  { id:"d1", name:"Apto 302 – Bloco B", address:"Rua das Flores, 120 – SP", arrematacao:280000, avaliacao:420000, status:"Em andamento",
+    checks:{contato_prop:true,contato_corretor:true,matricula:true},
+    gastos:[{id:"g1",descricao:"Taxa de leilão",valor:5600,pagamentos:{Ana:true}},{id:"g2",descricao:"ITBI",valor:8400,pagamentos:{Bruno:true}}],
+    phases:FASES_PADRAO, socios:DEMO_SOCIOS },
+  { id:"d2", name:"Casa Térrea – Vila Olímpia", address:"Av. Paulista, 900 – SP", arrematacao:350000, avaliacao:550000, status:"Em andamento",
+    checks:{contato_prop:true,dividas:true,preco_ref:true,boleto_pago:true,contrato_ass:true,dividas_pagas:true,registro_feito:true},
+    gastos:[], phases:FASES_PADRAO, socios:DEMO_SOCIOS },
+];
+
+// ══════════════════════════════════════════
+// HELPERS
+// ══════════════════════════════════════════
+const fmt = v => new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(v||0);
+const progFase = (checks, fase) => {
+  if (!fase.items.length) return 0;
+  return Math.round(fase.items.filter(i=>checks?.[i.id]).length / fase.items.length * 100);
+};
+const progTotal = (checks, fases) => {
+  const all = fases.flatMap(f=>f.items);
+  if (!all.length) return 0;
+  return Math.round(all.filter(i=>checks?.[i.id]).length / all.length * 100);
+};
+
+// ══════════════════════════════════════════
+// ÍCONES SVG
+// ══════════════════════════════════════════
+const ICONS = {
+  plus:"M12 5v14M5 12h14",
+  edit:"M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z",
+  trash:"M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6",
+  check:"M20 6L9 17l-5-5",
+  x:"M18 6L6 18M6 6l12 12",
+  arrow:"M19 12H5M12 5l-7 7 7 7",
+  settings:"M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z",
+  refresh:"M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15",
+};
+const Ico = ({name,size=16}) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d={ICONS[name]}/>
+  </svg>
+);
+
+// ══════════════════════════════════════════
+// MODAL BASE
+// ══════════════════════════════════════════
+function Modal({title,onClose,children,wide}){
+  return (
+    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:"#1a1f2e",border:"1px solid #2d3548",borderRadius:16,padding:28,width:"100%",maxWidth:wide?760:480,maxHeight:"90vh",overflowY:"auto"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
+          <h2 style={{margin:0,fontSize:18,color:"#f1f5f9"}}>{title}</h2>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",padding:4}}><Ico name="x" size={20}/></button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════
+// FORM IMÓVEL
+// ══════════════════════════════════════════
+function FormImovel({initial,onSave,onClose}){
+  const [f,setF] = useState(initial||{name:"",address:"",arrematacao:"",avaliacao:"",status:"Em andamento"});
+  const set = (k,v) => setF(x=>({...x,[k]:v}));
+  const campos = [
+    {label:"Nome / Identificação",key:"name",ph:"Ex: Apto 302 – Bloco B"},
+    {label:"Endereço",key:"address",ph:"Rua, número – Cidade"},
+    {label:"Valor de Arrematação (R$)",key:"arrematacao",type:"number",ph:"0"},
+    {label:"Valor de Avaliação (R$)",key:"avaliacao",type:"number",ph:"0"},
+  ];
+  return (
+    <Modal title={initial?"Editar Imóvel":"Novo Imóvel"} onClose={onClose}>
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        {campos.map(({label,key,type,ph})=>(
+          <label key={key} style={{display:"flex",flexDirection:"column",gap:6}}>
+            <span style={{fontSize:12,color:"#94a3b8",textTransform:"uppercase",letterSpacing:1}}>{label}</span>
+            <input type={type||"text"} value={f[key]} onChange={e=>set(key,e.target.value)} placeholder={ph}
+              style={{background:"#0f1117",border:"1px solid #2d3548",borderRadius:8,padding:"10px 14px",color:"#f1f5f9",fontSize:14,outline:"none"}}/>
+          </label>
+        ))}
+        <label style={{display:"flex",flexDirection:"column",gap:6}}>
+          <span style={{fontSize:12,color:"#94a3b8",textTransform:"uppercase",letterSpacing:1}}>Status</span>
+          <select value={f.status} onChange={e=>set("status",e.target.value)}
+            style={{background:"#0f1117",border:"1px solid #2d3548",borderRadius:8,padding:"10px 14px",color:"#f1f5f9",fontSize:14}}>
+            {["Em andamento","Concluído","Cancelado"].map(s=><option key={s}>{s}</option>)}
+          </select>
+        </label>
+        <div style={{display:"flex",gap:10,marginTop:8}}>
+          <button onClick={onClose} style={{flex:1,padding:"11px",borderRadius:8,border:"1px solid #2d3548",background:"none",color:"#94a3b8",cursor:"pointer"}}>Cancelar</button>
+          <button onClick={()=>onSave(f)} style={{flex:2,padding:"11px",borderRadius:8,border:"none",background:"#3b82f6",color:"#fff",cursor:"pointer",fontWeight:600}}>Salvar</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ══════════════════════════════════════════
+// FORM GASTO
+// ══════════════════════════════════════════
+function FormGasto({initial,onSave,onClose}){
+  const [f,setF] = useState(initial||{descricao:"",valor:""});
+  return (
+    <Modal title={initial?"Editar Gasto":"Novo Gasto"} onClose={onClose}>
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        <label style={{display:"flex",flexDirection:"column",gap:6}}>
+          <span style={{fontSize:12,color:"#94a3b8",textTransform:"uppercase",letterSpacing:1}}>Descrição</span>
+          <input value={f.descricao} onChange={e=>setF(x=>({...x,descricao:e.target.value}))} placeholder="Ex: Taxa de leilão"
+            style={{background:"#0f1117",border:"1px solid #2d3548",borderRadius:8,padding:"10px 14px",color:"#f1f5f9",fontSize:14}}/>
+        </label>
+        <label style={{display:"flex",flexDirection:"column",gap:6}}>
+          <span style={{fontSize:12,color:"#94a3b8",textTransform:"uppercase",letterSpacing:1}}>Valor (R$)</span>
+          <input type="number" value={f.valor} onChange={e=>setF(x=>({...x,valor:e.target.value}))} placeholder="0"
+            style={{background:"#0f1117",border:"1px solid #2d3548",borderRadius:8,padding:"10px 14px",color:"#f1f5f9",fontSize:14}}/>
+        </label>
+        <div style={{display:"flex",gap:10,marginTop:8}}>
+          <button onClick={onClose} style={{flex:1,padding:"11px",borderRadius:8,border:"1px solid #2d3548",background:"none",color:"#94a3b8",cursor:"pointer"}}>Cancelar</button>
+          <button onClick={()=>onSave(f)} style={{flex:2,padding:"11px",borderRadius:8,border:"none",background:"#10b981",color:"#fff",cursor:"pointer",fontWeight:600}}>Salvar</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ══════════════════════════════════════════
+// EDITOR DE FASES
+// ══════════════════════════════════════════
+function EditorFases({phases,onSave,onClose}){
+  const [local,setLocal] = useState(JSON.parse(JSON.stringify(phases)));
+  const addFase = () => setLocal(p=>[...p,{id:`fase_${Date.now()}`,label:"Nova Fase",color:"#64748b",icon:"📋",items:[]}]);
+  const delFase = id => setLocal(p=>p.filter(x=>x.id!==id));
+  const updFase = (id,k,v) => setLocal(p=>p.map(ph=>ph.id===id?{...ph,[k]:v}:ph));
+  const addItem = id => setLocal(p=>p.map(ph=>ph.id===id?{...ph,items:[...ph.items,{id:`it_${Date.now()}`,label:"Novo item"}]}:ph));
+  const delItem = (pid,iid) => setLocal(p=>p.map(ph=>ph.id===pid?{...ph,items:ph.items.filter(i=>i.id!==iid)}:ph));
+  const updItem = (pid,iid,v) => setLocal(p=>p.map(ph=>ph.id===pid?{...ph,items:ph.items.map(i=>i.id===iid?{...i,label:v}:i)}:ph));
+  return (
+    <Modal title="Editar Fases e Etapas" onClose={onClose} wide>
+      <div style={{display:"flex",flexDirection:"column",gap:16}}>
+        {local.map(ph=>(
+          <div key={ph.id} style={{background:"#0f1117",borderRadius:12,padding:16,border:`1px solid ${ph.color}44`}}>
+            <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:12}}>
+              <input value={ph.icon} onChange={e=>updFase(ph.id,"icon",e.target.value)} style={{width:46,background:"#1a1f2e",border:"1px solid #2d3548",borderRadius:8,padding:"6px 8px",color:"#f1f5f9",fontSize:18,textAlign:"center"}}/>
+              <input value={ph.label} onChange={e=>updFase(ph.id,"label",e.target.value)} style={{flex:1,background:"#1a1f2e",border:"1px solid #2d3548",borderRadius:8,padding:"8px 12px",color:"#f1f5f9",fontSize:14,fontWeight:600}}/>
+              <input type="color" value={ph.color} onChange={e=>updFase(ph.id,"color",e.target.value)} style={{width:36,height:36,borderRadius:8,border:"none",cursor:"pointer"}}/>
+              <button onClick={()=>delFase(ph.id)} style={{background:"#ef444422",border:"none",borderRadius:8,padding:8,color:"#ef4444",cursor:"pointer"}}><Ico name="trash" size={14}/></button>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {ph.items.map(it=>(
+                <div key={it.id} style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <div style={{width:6,height:6,borderRadius:"50%",background:ph.color,flexShrink:0}}/>
+                  <input value={it.label} onChange={e=>updItem(ph.id,it.id,e.target.value)} style={{flex:1,background:"#1a1f2e",border:"1px solid #2d3548",borderRadius:6,padding:"6px 10px",color:"#f1f5f9",fontSize:13}}/>
+                  <button onClick={()=>delItem(ph.id,it.id)} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",padding:4}}><Ico name="x" size={13}/></button>
+                </div>
+              ))}
+              <button onClick={()=>addItem(ph.id)} style={{alignSelf:"flex-start",background:`${ph.color}22`,border:`1px dashed ${ph.color}66`,borderRadius:6,padding:"5px 12px",color:ph.color,cursor:"pointer",fontSize:12,marginTop:4}}>+ Adicionar etapa</button>
+            </div>
+          </div>
+        ))}
+        <button onClick={addFase} style={{padding:"11px",borderRadius:10,border:"1px dashed #2d3548",background:"none",color:"#64748b",cursor:"pointer",fontSize:14}}>+ Adicionar fase</button>
+        <div style={{display:"flex",gap:10,marginTop:4}}>
+          <button onClick={onClose} style={{flex:1,padding:"11px",borderRadius:8,border:"1px solid #2d3548",background:"none",color:"#94a3b8",cursor:"pointer"}}>Cancelar</button>
+          <button onClick={()=>onSave(local)} style={{flex:2,padding:"11px",borderRadius:8,border:"none",background:"#3b82f6",color:"#fff",cursor:"pointer",fontWeight:600}}>Salvar Fases</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ══════════════════════════════════════════
+// MODAL SÓCIOS
+// ══════════════════════════════════════════
+function ModalSocios({socios,onSave,onClose}){
+  const [list,setList] = useState([...socios]);
+  const [novo,setNovo] = useState("");
+  return (
+    <Modal title="Gerenciar Sócios" onClose={onClose}>
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        <div style={{display:"flex",gap:8}}>
+          <input value={novo} onChange={e=>setNovo(e.target.value)} onKeyDown={e=>e.key==="Enter"&&novo.trim()&&(setList(l=>[...l,novo.trim()]),setNovo(""))} placeholder="Nome do sócio"
+            style={{flex:1,background:"#0f1117",border:"1px solid #2d3548",borderRadius:8,padding:"10px 14px",color:"#f1f5f9",fontSize:14}}/>
+          <button onClick={()=>{if(novo.trim()){setList(l=>[...l,novo.trim()]);setNovo("");}}} style={{background:"#3b82f6",border:"none",borderRadius:8,padding:"0 16px",color:"#fff",cursor:"pointer",fontWeight:700,fontSize:20}}>+</button>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {list.map((s,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"#0f1117",borderRadius:8,padding:"10px 14px"}}>
+              <span style={{color:"#f1f5f9"}}>👤 {s}</span>
+              <button onClick={()=>setList(l=>l.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:"#ef4444",cursor:"pointer",fontSize:18}}>×</button>
+            </div>
+          ))}
+        </div>
+        <div style={{display:"flex",gap:10,marginTop:8}}>
+          <button onClick={onClose} style={{flex:1,padding:"11px",borderRadius:8,border:"1px solid #2d3548",background:"none",color:"#94a3b8",cursor:"pointer"}}>Cancelar</button>
+          <button onClick={()=>onSave(list)} style={{flex:2,padding:"11px",borderRadius:8,border:"none",background:"#3b82f6",color:"#fff",cursor:"pointer",fontWeight:600}}>Salvar</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ══════════════════════════════════════════
+// DETALHE DO IMÓVEL
+// ══════════════════════════════════════════
+function DetalheImovel({prop,onUpdate,onBack,socios}){
+  const [editando,setEditando] = useState(false);
+  const [editFases,setEditFases] = useState(false);
+  const [gastoModal,setGastoModal] = useState(null);
+  const [tab,setTab] = useState("progresso");
+
+  const fases = prop.phases||FASES_PADRAO;
+  const checks = prop.checks||{};
+  const gastos = prop.gastos||[];
+  const sc = prop.socios||socios;
+
+  const toggleCheck = id => onUpdate({...prop,checks:{...checks,[id]:!checks[id]}});
+  const salvarGasto = f => {
+    const val = parseFloat(f.valor)||0;
+    if(gastoModal==="new"){
+      onUpdate({...prop,gastos:[...gastos,{id:`g_${Date.now()}`,descricao:f.descricao,valor:val,pagamentos:{}}]});
+    } else {
+      onUpdate({...prop,gastos:gastos.map(g=>g.id===gastoModal.id?{...g,descricao:f.descricao,valor:val}:g)});
+    }
+    setGastoModal(null);
+  };
+  const delGasto = id => onUpdate({...prop,gastos:gastos.filter(g=>g.id!==id)});
+  const togglePag = (gid,socio) => onUpdate({...prop,gastos:gastos.map(g=>g.id===gid?{...g,pagamentos:{...g.pagamentos,[socio]:!g.pagamentos?.[socio]}}:g)});
+
+  const totalG = gastos.reduce((s,g)=>s+(parseFloat(g.valor)||0),0);
+  const porSocio = sc.length?totalG/sc.length:0;
+  const prog = progTotal(checks,fases);
+  const SCor = {"Em andamento":"#f59e0b","Concluído":"#10b981","Cancelado":"#ef4444"};
+  const cor = SCor[prop.status]||"#64748b";
+
+  return (
+    <div style={{maxWidth:860,margin:"0 auto",padding:"0 0 60px"}}>
+      {/* Cabeçalho */}
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:24,flexWrap:"wrap"}}>
+        <button onClick={onBack} style={{background:"#1a1f2e",border:"1px solid #2d3548",borderRadius:10,padding:"8px 14px",color:"#94a3b8",cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+          <Ico name="arrow" size={14}/> Voltar
+        </button>
+        <div style={{flex:1,minWidth:200}}>
+          <h1 style={{margin:0,fontSize:20,color:"#f1f5f9",fontFamily:"'DM Serif Display',Georgia,serif"}}>{prop.name}</h1>
+          <p style={{margin:"2px 0 0",fontSize:12,color:"#64748b"}}>{prop.address}</p>
+        </div>
+        <span style={{background:`${cor}22`,color:cor,border:`1px solid ${cor}44`,borderRadius:20,padding:"4px 14px",fontSize:12,fontWeight:600}}>{prop.status}</span>
+        <button onClick={()=>setEditando(true)} style={{background:"#1a1f2e",border:"1px solid #2d3548",borderRadius:10,padding:"8px 12px",color:"#94a3b8",cursor:"pointer"}}><Ico name="edit" size={14}/></button>
+      </div>
+
+      {/* Cards */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:24}}>
+        {[
+          {label:"Arrematação",val:fmt(prop.arrematacao),color:"#f59e0b"},
+          {label:"Avaliação",val:fmt(prop.avaliacao),color:"#3b82f6"},
+          {label:"Desconto",val:(prop.avaliacao&&prop.arrematacao)?`${Math.round((1-prop.arrematacao/prop.avaliacao)*100)}%`:"—",color:"#10b981"},
+        ].map(({label,val,color})=>(
+          <div key={label} style={{background:"#1a1f2e",borderRadius:12,padding:"14px 16px",border:`1px solid ${color}33`}}>
+            <div style={{fontSize:10,color:"#64748b",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>{label}</div>
+            <div style={{fontSize:18,fontWeight:700,color}}>{val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Barra geral */}
+      <div style={{background:"#1a1f2e",borderRadius:12,padding:"14px 18px",marginBottom:24,border:"1px solid #2d3548"}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+          <span style={{fontSize:13,color:"#94a3b8"}}>Progresso geral</span>
+          <span style={{fontSize:13,fontWeight:700,color:prog===100?"#10b981":"#f1f5f9"}}>{prog}%</span>
+        </div>
+        <div style={{background:"#0f1117",borderRadius:99,height:8}}>
+          <div style={{background:"linear-gradient(90deg,#3b82f6,#10b981)",borderRadius:99,height:8,width:`${prog}%`,transition:"width 0.4s"}}/>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{display:"flex",gap:4,marginBottom:20,background:"#1a1f2e",borderRadius:12,padding:4,border:"1px solid #2d3548"}}>
+        {[{id:"progresso",label:"📋 Progresso"},{id:"gastos",label:"💰 Gastos"}].map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,padding:"9px",borderRadius:9,border:"none",background:tab===t.id?"#2d3548":"none",color:tab===t.id?"#f1f5f9":"#64748b",cursor:"pointer",fontSize:14,fontWeight:tab===t.id?600:400,transition:"all 0.2s"}}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* TAB PROGRESSO */}
+      {tab==="progresso"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:16}}>
+          {fases.map(fase=>{
+            const pp = progFase(checks,fase);
+            return (
+              <div key={fase.id} style={{background:"#1a1f2e",borderRadius:14,padding:20,border:`1px solid ${fase.color}33`}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <span style={{fontSize:20}}>{fase.icon}</span>
+                    <div>
+                      <div style={{fontSize:15,fontWeight:700,color:"#f1f5f9"}}>{fase.label}</div>
+                      <div style={{fontSize:11,color:fase.color}}>{pp}% concluído</div>
+                    </div>
+                  </div>
+                  <div style={{background:"#0f1117",borderRadius:99,height:6,width:80}}>
+                    <div style={{background:fase.color,borderRadius:99,height:6,width:`${pp}%`,transition:"width 0.4s"}}/>
+                  </div>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {fase.items.map(item=>(
+                    <div key={item.id} onClick={()=>toggleCheck(item.id)}
+                      style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:10,background:checks[item.id]?`${fase.color}15`:"#0f1117",border:`1px solid ${checks[item.id]?fase.color+"44":"#2d3548"}`,cursor:"pointer",transition:"all 0.2s",userSelect:"none"}}>
+                      <div style={{width:22,height:22,borderRadius:6,border:`2px solid ${checks[item.id]?fase.color:"#3d4560"}`,background:checks[item.id]?fase.color:"none",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all 0.2s"}}>
+                        {checks[item.id]&&<Ico name="check" size={12}/>}
+                      </div>
+                      <span style={{fontSize:14,color:checks[item.id]?"#f1f5f9":"#94a3b8",textDecoration:checks[item.id]?"line-through":"none"}}>{item.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          <button onClick={()=>setEditFases(true)} style={{padding:"11px",borderRadius:12,border:"1px dashed #2d3548",background:"none",color:"#64748b",cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+            <Ico name="settings" size={14}/> Editar Fases e Etapas
+          </button>
+        </div>
+      )}
+
+      {/* TAB GASTOS */}
+      {tab==="gastos"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:16}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+            {[
+              {label:"Total de gastos",val:fmt(totalG),color:"#ef4444"},
+              {label:`Por sócio (${sc.length})`,val:fmt(porSocio),color:"#f59e0b"},
+            ].map(({label,val,color})=>(
+              <div key={label} style={{background:"#1a1f2e",borderRadius:12,padding:"14px 16px",border:`1px solid ${color}33`}}>
+                <div style={{fontSize:10,color:"#64748b",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>{label}</div>
+                <div style={{fontSize:18,fontWeight:700,color}}>{val}</div>
+              </div>
+            ))}
+          </div>
+
+          {gastos.map(g=>{
+            const porcao = sc.length?g.valor/sc.length:0;
+            const pagos = sc.filter(s=>g.pagamentos?.[s]);
+            const totalPago = pagos.length*porcao;
+            return (
+              <div key={g.id} style={{background:"#1a1f2e",borderRadius:14,padding:18,border:"1px solid #2d3548"}}>
+                <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:14}}>
+                  <div>
+                    <div style={{fontSize:15,fontWeight:600,color:"#f1f5f9"}}>{g.descricao}</div>
+                    <div style={{fontSize:12,color:"#ef4444",marginTop:2}}>{fmt(g.valor)} total — {fmt(porcao)}/sócio</div>
+                  </div>
+                  <div style={{display:"flex",gap:8}}>
+                    <button onClick={()=>setGastoModal(g)} style={{background:"#2d3548",border:"none",borderRadius:8,padding:"6px 10px",color:"#94a3b8",cursor:"pointer"}}><Ico name="edit" size={13}/></button>
+                    <button onClick={()=>delGasto(g.id)} style={{background:"#ef444422",border:"none",borderRadius:8,padding:"6px 10px",color:"#ef4444",cursor:"pointer"}}><Ico name="trash" size={13}/></button>
+                  </div>
+                </div>
+                <div style={{marginBottom:12}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                    <span style={{fontSize:12,color:"#64748b"}}>Pagamentos</span>
+                    <span style={{fontSize:12,color:"#10b981"}}>{fmt(totalPago)} / {fmt(g.valor)}</span>
+                  </div>
+                  <div style={{background:"#0f1117",borderRadius:99,height:5}}>
+                    <div style={{background:"#10b981",borderRadius:99,height:5,width:g.valor?`${(totalPago/g.valor)*100}%`:"0%",transition:"width 0.4s"}}/>
+                  </div>
+                </div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                  {sc.map(s=>{
+                    const pago = g.pagamentos?.[s];
+                    return (
+                      <button key={s} onClick={()=>togglePag(g.id,s)}
+                        style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:20,border:`1px solid ${pago?"#10b98166":"#2d3548"}`,background:pago?"#10b98122":"#0f1117",color:pago?"#10b981":"#64748b",cursor:"pointer",fontSize:13,transition:"all 0.2s"}}>
+                        {pago&&<Ico name="check" size={12}/>}{s}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+
+          <button onClick={()=>setGastoModal("new")} style={{padding:"13px",borderRadius:12,border:"1px dashed #10b98166",background:"#10b98111",color:"#10b981",cursor:"pointer",fontSize:14,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+            <Ico name="plus" size={16}/> Adicionar Gasto
+          </button>
+        </div>
+      )}
+
+      {editando&&<FormImovel initial={prop} onClose={()=>setEditando(false)} onSave={f=>{onUpdate({...prop,...f,arrematacao:parseFloat(f.arrematacao)||prop.arrematacao,avaliacao:parseFloat(f.avaliacao)||prop.avaliacao});setEditando(false);}}/>}
+      {editFases&&<EditorFases phases={fases} onClose={()=>setEditFases(false)} onSave={p=>{onUpdate({...prop,phases:p});setEditFases(false);}}/>}
+      {gastoModal&&<FormGasto initial={gastoModal!=="new"?gastoModal:null} onClose={()=>setGastoModal(null)} onSave={salvarGasto}/>}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════
+// CARD IMÓVEL
+// ══════════════════════════════════════════
+function CardImovel({prop,onClick,onDelete}){
+  const fases = prop.phases||FASES_PADRAO;
+  const prog = progTotal(prop.checks||{},fases);
+  const SCor = {"Em andamento":"#f59e0b","Concluído":"#10b981","Cancelado":"#ef4444"};
+  const cor = SCor[prop.status]||"#64748b";
+  return (
+    <div onClick={onClick}
+      style={{background:"#1a1f2e",borderRadius:16,padding:20,border:"1px solid #2d3548",cursor:"pointer",transition:"all 0.2s",position:"relative"}}
+      onMouseEnter={e=>{e.currentTarget.style.borderColor="#3b82f6";e.currentTarget.style.transform="translateY(-2px)";}}
+      onMouseLeave={e=>{e.currentTarget.style.borderColor="#2d3548";e.currentTarget.style.transform="";}}>
+      <button onClick={e=>{e.stopPropagation();if(window.confirm("Excluir este imóvel?"))onDelete();}}
+        style={{position:"absolute",top:14,right:14,background:"#ef444422",border:"none",borderRadius:8,padding:"5px 8px",color:"#ef4444",cursor:"pointer"}}>
+        <Ico name="trash" size={13}/>
+      </button>
+      <div style={{marginBottom:12}}>
+        <div style={{fontSize:16,fontWeight:700,color:"#f1f5f9",marginBottom:4,paddingRight:36,fontFamily:"'DM Serif Display',Georgia,serif"}}>{prop.name}</div>
+        <div style={{fontSize:12,color:"#64748b"}}>{prop.address}</div>
+      </div>
+      <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+        <span style={{background:`${cor}22`,color:cor,border:`1px solid ${cor}44`,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:600}}>{prop.status}</span>
+        {prop.arrematacao&&prop.avaliacao&&(
+          <span style={{background:"#10b98122",color:"#10b981",border:"1px solid #10b98144",borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:600}}>
+            {Math.round((1-prop.arrematacao/prop.avaliacao)*100)}% desconto
+          </span>
+        )}
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"#64748b",marginBottom:10}}>
+        <span>Arremat.: <strong style={{color:"#f59e0b"}}>{fmt(prop.arrematacao)}</strong></span>
+        <span>Aval.: <strong style={{color:"#3b82f6"}}>{fmt(prop.avaliacao)}</strong></span>
+      </div>
+      <div>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+          <span style={{fontSize:11,color:"#64748b"}}>Progresso</span>
+          <span style={{fontSize:11,fontWeight:700,color:prog===100?"#10b981":"#94a3b8"}}>{prog}%</span>
+        </div>
+        <div style={{background:"#0f1117",borderRadius:99,height:5}}>
+          <div style={{background:prog===100?"#10b981":"linear-gradient(90deg,#3b82f6,#8b5cf6)",borderRadius:99,height:5,width:`${prog}%`,transition:"width 0.4s"}}/>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════
+// APP PRINCIPAL
+// ══════════════════════════════════════════
+function App(){
+  const [imoveis,setImoveis] = useState(null);
+  const [selecionado,setSelecionado] = useState(null);
+  const [novoModal,setNovoModal] = useState(false);
+  const [sociosModal,setSociosModal] = useState(false);
+  const [socios,setSocios] = useState(DEMO_SOCIOS);
+  const [usuario,setUsuario] = useState(null);
+  const [lastSync,setLastSync] = useState(null);
+  const demo = MODO_DEMO;
+
+  useEffect(()=>{
+    if(demo){
+      setImoveis(DEMO_IMOVEIS);
+      const u = localStorage.getItem("leilao_user");
+      if(u) setUsuario(u);
+      return;
+    }
+    carregar();
+    const t = setInterval(carregar,5000);
+    return ()=>clearInterval(t);
+  },[]);
+
+  const carregar = async()=>{
+    try{
+      const d = await sbGet("imoveis","order=created_at");
+      if(Array.isArray(d)){
+        setImoveis(d.map(x=>({...x,checks:x.checks||{},gastos:x.gastos||[],phases:x.phases||FASES_PADRAO,socios:x.socios||socios})));
+        setLastSync(new Date());
+      }
+    }catch(e){console.error(e);}
+  };
+
+  const salvar = async p=>{
+    if(demo){setImoveis(ps=>ps.map(x=>x.id===p.id?p:x));if(selecionado?.id===p.id)setSelecionado(p);return;}
+    await sbPatch("imoveis",p.id,p);
+    carregar();
+    setSelecionado(p);
+  };
+
+  const adicionar = async f=>{
+    const novo={...f,id:`p_${Date.now()}`,checks:{},gastos:[],phases:FASES_PADRAO,socios,arrematacao:parseFloat(f.arrematacao)||0,avaliacao:parseFloat(f.avaliacao)||0};
+    if(demo){setImoveis(ps=>[...(ps||[]),novo]);return;}
+    await sbPost("imoveis",novo);
+    carregar();
+  };
+
+  const excluir = async id=>{
+    if(demo){setImoveis(ps=>ps.filter(p=>p.id!==id));return;}
+    await sbDel("imoveis",id);
+    carregar();
+  };
+
+  // TELA DE LOGIN
+  if(!usuario){
+    return (
+      <div style={{minHeight:"100vh",background:"#0f1117",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div style={{background:"#1a1f2e",borderRadius:20,padding:40,width:"100%",maxWidth:380,border:"1px solid #2d3548",textAlign:"center"}}>
+          <div style={{fontSize:52,marginBottom:12}}>🏛️</div>
+          <h1 style={{margin:"0 0 6px",color:"#f1f5f9",fontFamily:"'DM Serif Display',Georgia,serif",fontSize:28}}>LeilãoPro</h1>
+          <p style={{color:"#64748b",marginBottom:28,fontSize:14}}>Quem está acessando?</p>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {socios.map((s,i)=>(
+              <button key={i} onClick={()=>{setUsuario(s);localStorage.setItem("leilao_user",s);}}
+                style={{padding:"13px",borderRadius:10,border:"1px solid #2d3548",background:"#2d3548",color:"#f1f5f9",cursor:"pointer",fontSize:15,fontWeight:600}}>
+                👤 {s}
+              </button>
+            ))}
+            <button onClick={()=>{setUsuario("Visitante");localStorage.setItem("leilao_user","Visitante");}}
+              style={{padding:"12px",borderRadius:10,border:"1px dashed #2d3548",background:"none",color:"#64748b",cursor:"pointer",fontSize:13,marginTop:4}}>
+              Entrar como visitante
+            </button>
+          </div>
+          {demo&&<p style={{fontSize:10,color:"#3d4560",marginTop:20}}>Modo demonstração — dados não são salvos</p>}
+        </div>
+      </div>
+    );
+  }
+
+  const NAV = (
+    <div style={{borderBottom:"1px solid #2d3548",padding:"14px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",background:"#1a1f2ecc",backdropFilter:"blur(10px)",position:"sticky",top:0,zIndex:10}}>
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        <span style={{fontSize:22}}>🏛️</span>
+        <span style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:18,color:"#f1f5f9"}}>LeilãoPro</span>
+        {demo&&<span style={{background:"#f59e0b22",color:"#f59e0b",border:"1px solid #f59e0b44",borderRadius:20,padding:"2px 10px",fontSize:10,fontWeight:700}}>DEMO</span>}
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:8}}>
+        {!demo&&lastSync&&<span style={{fontSize:10,color:"#3d4560"}}>↻ {lastSync.toLocaleTimeString("pt-BR")}</span>}
+        <button onClick={()=>setSociosModal(true)} style={{background:"#2d3548",border:"none",borderRadius:8,padding:"7px 12px",color:"#94a3b8",cursor:"pointer",fontSize:12}}>👥 Sócios</button>
+        <button onClick={()=>setUsuario(null)} style={{background:"none",border:"1px solid #2d3548",borderRadius:8,padding:"7px 12px",color:"#64748b",cursor:"pointer",fontSize:12}}>👤 {usuario}</button>
+      </div>
+    </div>
+  );
+
+  // TELA DE DETALHE
+  if(selecionado){
+    return (
+      <div style={{minHeight:"100vh",background:"#0f1117",color:"#f1f5f9"}}>
+        {NAV}
+        <div style={{maxWidth:900,margin:"0 auto",padding:"28px 16px"}}>
+          <DetalheImovel prop={selecionado} onUpdate={p=>{salvar(p);setSelecionado(p);}} onBack={()=>setSelecionado(null)} socios={socios}/>
+        </div>
+      </div>
+    );
+  }
+
+  // TELA PRINCIPAL
+  const lista = imoveis||[];
+  const ativos = lista.filter(p=>p.status!=="Cancelado").length;
+  const totalInv = lista.reduce((s,p)=>s+(parseFloat(p.arrematacao)||0),0);
+
+  return (
+    <div style={{minHeight:"100vh",background:"#0f1117",color:"#f1f5f9"}}>
+      {NAV}
+      <div style={{maxWidth:960,margin:"0 auto",padding:"28px 16px"}}>
+
+        {/* Stats */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:28}}>
+          {[
+            {label:"Imóveis ativos",val:ativos,icon:"🏠",color:"#3b82f6"},
+            {label:"Total investido",val:fmt(totalInv),icon:"💵",color:"#f59e0b"},
+            {label:"Sócios",val:socios.length,icon:"👥",color:"#8b5cf6"},
+          ].map(({label,val,icon,color})=>(
+            <div key={label} style={{background:"#1a1f2e",borderRadius:14,padding:"16px 18px",border:`1px solid ${color}33`}}>
+              <div style={{fontSize:20,marginBottom:4}}>{icon}</div>
+              <div style={{fontSize:20,fontWeight:700,color}}>{val}</div>
+              <div style={{fontSize:10,color:"#64748b",textTransform:"uppercase",letterSpacing:1,marginTop:2}}>{label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Lista */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18}}>
+          <h2 style={{margin:0,fontSize:18,color:"#f1f5f9",fontFamily:"'DM Serif Display',Georgia,serif"}}>Imóveis</h2>
+          <button onClick={()=>setNovoModal(true)} style={{display:"flex",alignItems:"center",gap:8,background:"#3b82f6",border:"none",borderRadius:10,padding:"10px 18px",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:600}}>
+            <Ico name="plus" size={15}/> Novo Imóvel
+          </button>
+        </div>
+
+        {lista.length===0?(
+          <div style={{textAlign:"center",padding:"60px 20px",color:"#3d4560"}}>
+            <div style={{fontSize:48,marginBottom:12}}>🏚️</div>
+            <div style={{fontSize:16}}>Nenhum imóvel ainda</div>
+            <div style={{fontSize:13,marginTop:6}}>Clique em "Novo Imóvel" para começar</div>
+          </div>
+        ):(
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16}}>
+            {lista.map(p=>(
+              <CardImovel key={p.id} prop={p} onClick={()=>setSelecionado(p)} onDelete={()=>excluir(p.id)}/>
+            ))}
+          </div>
+        )}
+
+        {/* Banner demo */}
+        {demo&&(
+          <div style={{marginTop:40,background:"#1a1f2e",borderRadius:14,padding:20,border:"1px solid #f59e0b33"}}>
+            <div style={{fontSize:14,fontWeight:700,color:"#f59e0b",marginBottom:10}}>⚙️ Para ativar sincronização real entre os sócios:</div>
+            <ol style={{paddingLeft:20,color:"#94a3b8",fontSize:13,lineHeight:2}}>
+              <li>Crie um projeto em <strong style={{color:"#f1f5f9"}}>supabase.com</strong> e execute o SQL no guia</li>
+              <li>Copie sua URL e chave anon do Supabase</li>
+              <li>Edite este arquivo HTML: substitua <code style={{background:"#0f1117",padding:"2px 6px",borderRadius:4,color:"#10b981"}}>SUPABASE_URL</code> e <code style={{background:"#0f1117",padding:"2px 6px",borderRadius:4,color:"#10b981"}}>SUPABASE_ANON_KEY</code></li>
+              <li>Troque <code style={{background:"#0f1117",padding:"2px 6px",borderRadius:4,color:"#10b981"}}>MODO_DEMO = true</code> para <code style={{background:"#0f1117",padding:"2px 6px",borderRadius:4,color:"#10b981"}}>false</code></li>
+              <li>Suba o arquivo na Vercel — pronto!</li>
+            </ol>
+          </div>
+        )}
+      </div>
+
+      {novoModal&&<FormImovel onClose={()=>setNovoModal(false)} onSave={f=>{adicionar(f);setNovoModal(false);}}/>}
+      {sociosModal&&<ModalSocios socios={socios} onClose={()=>setSociosModal(false)} onSave={l=>{setSocios(l);setSociosModal(false);}}/>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
