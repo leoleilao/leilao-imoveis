@@ -3,8 +3,8 @@ import { useState, useEffect, useCallback } from "react";
 // ============================================================
 // SUPABASE CONFIG — substitua pela sua URL e chave anon
 // ============================================================
-const SUPABASE_URL = "https://SEU_PROJETO.supabase.co";
-const SUPABASE_ANON_KEY = "SUA_CHAVE_ANON_AQUI";
+const SUPABASE_URL = "https://rablpvofyfvcaaxxkqfv.supabase.co/rest/v1/";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJhYmxwdm9meWZ2Y2FheHhrcWZ2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk1ODkwNDcsImV4cCI6MjA5NTE2NTA0N30.1txJePlkZ2la7Pz_1JBq_Pu3Wf3n1Td9LSOBHWQcQEo";
 
 // ---- Supabase client mínimo sem biblioteca externa ----
 const sb = {
@@ -622,7 +622,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [userModal, setUserModal] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [demo, setDemo] = useState(true); // modo demo até Supabase configurado
+  const [demo, setDemo] = useState(false); // modo demo até Supabase configurado
   const [lastSync, setLastSync] = useState(null);
 
   // Load initial data
